@@ -9,7 +9,6 @@ using UnityEngine;
 using UnityEngine.Serialization;
 using Zenject.Internal;
 using UnityEngine.Events;
-using UnityEngine.UIElements;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -262,7 +261,6 @@ namespace Zenject
 
             _container = new DiContainer(parents, parents.First().IsValidating);
 
-            // Do this after creating DiContainer in case it's needed by the pre install logic
             if (PreInstall != null)
             {
                 PreInstall();
@@ -285,36 +283,17 @@ namespace Zenject
                 _container.DefaultParent = null;
             }
 
-            // Record all the injectable components in the scene BEFORE installing the installers
-            // This is nice for cases where the user calls InstantiatePrefab<>, etc. in their installer
-            // so that it doesn't inject on the game object twice
-            // InitialComponentsInjecter will also guarantee that any component that is injected into
-            // another component has itself been injected
+            // Record all the injectable MonoBehaviours in the scene BEFORE installing the installers.
+            // UIToolkit VisualElements are NOT scanned here — they must self-inject via
+            // ZenjectVisualElementHelper.InjectSelf(this) in their AttachToPanelEvent callback.
+            // This is necessary because rootVisualElement is null during Awake() and programmatic
+            // VEs don't exist in the scene tree at scan time.
             var injectableMonoBehaviours = new List<MonoBehaviour>();
             GetInjectableMonoBehaviours(injectableMonoBehaviours);
             foreach (var instance in injectableMonoBehaviours)
             {
                 _container.QueueForInject(instance);
             }
-
-            // UIDocument is defined in the UI Elements package. In Unity 2021.1 the package was deprecated
-            // in favor of including it in the UI Elements module. Earlier Unity versions already had that
-            // module, but it does not include UIDocument.
-#if (USE_UI_ELEMENTS_PACKAGE  && !ZENJECT_DISABLE_DEFAULT_UI_ELEMENTS_INJECTION) || (USE_UI_ELEMENTS_MODULE && UNITY_2021_1_OR_NEWER && !ZENJECT_DISABLE_DEFAULT_UI_ELEMENTS_INJECTION)
-            List<GameObject> rootObjectsInScene = new List<GameObject>();
-            gameObject.scene.GetRootGameObjects(rootObjectsInScene);
-            for (int i = 0; i < rootObjectsInScene.Count; i++)
-            {
-                UIDocument[] uiDocuments = rootObjectsInScene[i].GetComponentsInChildren<UIDocument>(true);
-                for (int j = 0; j < uiDocuments.Length; j++)
-                {
-                    // rootVisualElement is null until OnEnable() fires (after Awake).
-                    // Guard against null to prevent ArgumentNullException during scene init.
-                    if (uiDocuments[j].rootVisualElement != null)
-                        uiDocuments[j].rootVisualElement.Query().ForEach(x => _container.QueueForInject(x));
-                }
-            }
-#endif
 
             foreach (var decoratorContext in _decoratorContexts)
             {
@@ -395,12 +374,9 @@ namespace Zenject
             if (ExtraBindingsInstallMethod != null)
             {
                 ExtraBindingsInstallMethod(_container);
-                // Reset extra bindings for next time we change scenes
                 ExtraBindingsInstallMethod = null;
             }
 
-            // Always install the installers last so they can be injected with
-            // everything above
             foreach (var decoratorContext in _decoratorContexts)
             {
                 decoratorContext.InstallDecoratorInstallers();
@@ -416,7 +392,6 @@ namespace Zenject
             if (ExtraBindingsLateInstallMethod != null)
             {
                 ExtraBindingsLateInstallMethod(_container);
-                // Reset extra bindings for next time we change scenes
                 ExtraBindingsLateInstallMethod = null;
             }
         }
@@ -429,10 +404,6 @@ namespace Zenject
             ZenUtilInternal.GetInjectableMonoBehavioursInScene(scene, monoBehaviours);
         }
 
-        // These methods can be used for cases where you need to create the SceneContext entirely in code
-        // Note that if you use these methods that you have to call Run() yourself
-        // This is useful because it allows you to create a SceneContext and configure it how you want
-        // and add what installers you want before kicking off the Install/Resolve
         public static SceneContext Create()
         {
             return CreateComponent<SceneContext>(
