@@ -117,12 +117,13 @@ namespace Zenject
             {
                 return;
             }
-            
+
             ExtraBindingsInstallMethod = null;
             ParentContainers = null;
             ExtraBindingsLateInstallMethod = null;
         }
 #endif
+
         protected override void Awake()
         {
             base.Awake();
@@ -145,7 +146,7 @@ namespace Zenject
         protected override void ResetInstanceFields()
         {
             base.ResetInstanceFields();
-            
+
             _container = null;
             _decoratorContexts.Clear();
             _hasInstalled = false;
@@ -307,7 +308,10 @@ namespace Zenject
                 UIDocument[] uiDocuments = rootObjectsInScene[i].GetComponentsInChildren<UIDocument>(true);
                 for (int j = 0; j < uiDocuments.Length; j++)
                 {
-                    uiDocuments[j].rootVisualElement.Query().ForEach(x => _container.QueueForInject(x));
+                    // rootVisualElement is null until OnEnable() fires (after Awake).
+                    // Guard against null to prevent ArgumentNullException during scene init.
+                    if (uiDocuments[j].rootVisualElement != null)
+                        uiDocuments[j].rootVisualElement.Query().ForEach(x => _container.QueueForInject(x));
                 }
             }
 #endif
